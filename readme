@@ -1,0 +1,117 @@
+# PDB Parallel Data Pipeline
+
+A parallelized protein structure ingestion and preprocessing pipeline built
+with Dask and BioPython. Downloads PDB files from RCSB, extracts per-residue
+features, and writes a clean Parquet-ready dataset — demonstrating HPC-style
+parallel data engineering on real scientific data.
+
+Built as part of an NSF ACCESS allocation preparation portfolio.
+
+---
+
+## Pipeline Architecture
+```
+PDB IDs (text file)
+      │
+  Dask Bag (lazy sequence of IDs)
+      │
+  map: download .pdb via RCSB REST API
+      │
+  map: parse with BioPython → per-residue features
+       (residue type, chain ID, B-factor, coords x/y/z)
+      │
+  filter: skip failed downloads and malformed structures
+      │
+  flatten → Dask DataFrame
+      │
+  write to CSV / Parquet
+```
+
+---
+
+## Benchmark Results
+
+Tested on 100, 250, and 500 PDB structures with 4 parallel workers vs serial.
+
+| Structures | Serial (s) | Dask 4-workers (s) | Speedup |
+|------------|------------|---------------------|---------|
+| 100        | 97.61      | 7.74                | 12.61x  |
+| 250        | 134.57     | 19.23               | 7.00x   |
+| 500        | 233.17     | 37.31               | 6.25x   |
+
+![Benchmark Plot](output/benchmark_speedup.png)
+
+### Why does speedup decrease from 12x to 6x?
+
+At n=100 all downloads are fresh — pure network I/O where threads overlap
+waiting time almost perfectly, exceeding the theoretical 4x ceiling.
+At n=250 and n=500 a growing fraction of structures are already cached on
+disk, so the bottleneck shifts from network I/O to local parsing. Parsing
+is CPU-bound, where thread-based parallelism is limited by Python's GIL.
+This is a real HPC phenomenon: the optimal parallelism strategy depends on
+whether your bottleneck is I/O-bound or CPU-bound.
+
+---
+
+## Features
+
+- Lazy parallel execution via Dask Bag
+- Fault-tolerant: malformed files and 404s are logged and skipped
+- Caching: already-downloaded structures are never re-fetched
+- Structured logging with loguru
+- Outputs a clean CSV with residue-level features ready for ML ingestion
+
+---
+
+## Extracted Features
+
+| Column     | Description                              |
+|------------|------------------------------------------|
+| `pdb_id`   | RCSB structure identifier                |
+| `chain`    | Chain ID within the structure            |
+| `res_name` | Three-letter residue name (e.g. ALA)     |
+| `res_seq`  | Residue sequence number                  |
+| `ca_x/y/z` | Alpha-carbon 3D coordinates (Angstroms)  |
+| `b_factor` | Crystallographic B-factor (flexibility)  |
+
+---
+
+## Setup
+```bash
+python -m venv venv
+venv\Scripts\activate        # Windows
+pip install -r requirements.txt
+```
+
+---
+
+## Usage
+```bash
+cd src
+
+# Run the Dask pipeline on 10 default structures
+python pipeline.py
+
+# Run the full benchmark across 100/250/500 structures
+python benchmark.py
+```
+
+---
+
+## Project Structure
+```
+pdb_pipeline/
+├── src/
+│   ├── fetch.py          # RCSB downloader with error handling
+│   ├── parser.py         # BioPython PDB parser
+│   ├── pipeline.py       # Serial + Dask runners
+│   ├── benchmark.py      # Speedup benchmark and plots
+│   └── pdb_ids.txt       # 500 curated PDB IDs
+├── output/
+│   ├── benchmark_speedup.png
+│   └── benchmark_results.csv
+└── README.md
+```
+
+---
+

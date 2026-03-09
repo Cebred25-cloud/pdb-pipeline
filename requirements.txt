@@ -1,0 +1,8 @@
+dask
+biopython
+pandas
+pyarrow
+tqdm
+loguru
+requests
+matplotlib
