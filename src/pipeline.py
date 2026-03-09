@@ -14,24 +14,31 @@ PDB_IDS = [
     "1HTM", "3NIR", "1MBO", "1GFL", "2LYZ"
 ]
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── Single unit of work ───────────────────────────────────────────────────────
+def process_one(pdb_id: str) -> list[dict]:
+    """
+    Download and parse a single PDB structure.
+    Returns a list of residue dicts, or empty list on failure.
+    This is the function Dask will call in parallel.
+    """
+    pdb_path = download_pdb(pdb_id)
+    if pdb_path is None:
+        return []
+
+    residues = parse_pdb(pdb_path)
+    if residues is None:
+        return []
+
+    return residues
+
+# ── Serial runner ─────────────────────────────────────────────────────────────
 def run_serial(pdb_ids: list[str]) -> pd.DataFrame:
     all_residues = []
-    failed = []
 
     start = time.perf_counter()
 
     for pdb_id in pdb_ids:
-        pdb_path = download_pdb(pdb_id)
-        if pdb_path is None:
-            failed.append(pdb_id)
-            continue
-
-        residues = parse_pdb(pdb_path)
-        if residues is None:
-            failed.append(pdb_id)
-            continue
-
+        residues = process_one(pdb_id)
         all_residues.extend(residues)
 
     elapsed = time.perf_counter() - start
@@ -40,16 +47,12 @@ def run_serial(pdb_ids: list[str]) -> pd.DataFrame:
     out_path = OUTPUT_DIR / "residues_serial.csv"
     df.to_csv(out_path, index=False)
 
-    logger.info(f"Done — {len(pdb_ids) - len(failed)}/{len(pdb_ids)} structures processed")
     logger.info(f"Total residues: {len(df)}")
     logger.info(f"Serial runtime: {elapsed:.2f}s")
     logger.info(f"Saved to {out_path}")
 
-    if failed:
-        logger.warning(f"Failed IDs: {failed}")
-
-    return df
+    return df, elapsed
 
 if __name__ == "__main__":
-    df = run_serial(PDB_IDS)
+    df, elapsed = run_serial(PDB_IDS)
     print(df.head(10))
