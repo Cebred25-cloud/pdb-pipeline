@@ -1,4 +1,6 @@
 venv/ 
 __pycache__/ 
 *.pyc 
-output/ 
+output/residues_serial.csv
+output/residues_dask.csv
+data/
